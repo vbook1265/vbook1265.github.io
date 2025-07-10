@@ -1,0 +1,386 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Manajemen Keuangan</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f0fdf4;
+      margin: 0;
+      padding: 20px;
+      color: #111;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    .form-group {
+      margin-bottom: 10px;
+    }
+
+    input, select, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 5px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      font-size: 1em;
+    }
+
+    button {
+      background-color: #28a745;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    button:hover {
+      background-color: #218838;
+    }
+
+    .saldo {
+      text-align: center;
+      font-size: 1.2em;
+      font-weight: bold;
+      margin: 15px 0;
+      background: #d4edda;
+      padding: 10px;
+      border-radius: 10px;
+    }
+
+    .layout {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-top: 10px;
+    }
+
+    .chart-box, .table-box {
+      flex: 1 1 300px;
+      background: #fff;
+      padding: 15px;
+      border-radius: 15px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      text-align: left;
+    }
+
+    th {
+      background-color: #28a745;
+      color: white;
+    }
+
+    .chart-container {
+      position: relative;
+      width: 100%;
+      max-width: 300px;
+      margin: auto;
+    }
+
+    #chartCenterText {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 1.2em;
+      font-weight: bold;
+      color: #333;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<h1>💸 Manajemen Keuangan</h1>
+
+<div class="form-group">
+  <label>Nama Transaksi</label>
+  <input type="text" id="nama" placeholder="Contoh: Beli Pulsa / Kiriman Gaji">
+</div>
+
+<div class="form-group">
+  <label>Jumlah (Rp)</label>
+  <input type="number" id="jumlah" placeholder="Contoh: 50000">
+</div>
+
+<div class="form-group">
+  <label>Jenis Transaksi</label>
+  <select id="tipe" onchange="updateKategoriOptions()">
+    <option value="masuk">Pemasukan</option>
+    <option value="keluar">Pengeluaran</option>
+  </select>
+</div>
+
+<div class="form-group">
+  <label>Kategori</label>
+  <select id="kategori">
+    <option value="penjualan">Penjualan</option>
+    <option value="kiriman">Kiriman</option>
+  </select>
+</div>
+
+<button onclick="tambahTransaksi()">+ Simpan Transaksi</button>
+<button onclick="resetData()" style="margin-top:10px;background:#dc3545;">🗑️ Reset Semua</button>
+<button onclick="undoTransaksi()" style="margin-top:10px;background:#ffc107;color:#000;font-weight:bold;">↩️ Batalkan Transaksi Terakhir</button>
+
+<div class="saldo" id="saldo">Total Saldo: Rp0</div>
+
+<div class="layout">
+  <div class="chart-box">
+    <div class="chart-container">
+      <canvas id="chartKeuangan"></canvas>
+      <div id="chartCenterText"></div>
+    </div>
+  </div>
+
+  <div class="table-box">
+    <h3>Riwayat Transaksi</h3>
+    <table id="riwayat">
+      <thead>
+        <tr>
+          <th>Nama</th>
+          <th>Jumlah</th>
+          <th>Kategori</th>
+          <th>Jenis</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let data = JSON.parse(localStorage.getItem("keuanganData")) || [];
+let undoStack = JSON.parse(localStorage.getItem("undoKeuanganData")) || [];
+let chart;
+
+const warnaKategoriPengeluaran = {
+  belanja: "#f4c430",
+  transport: "#1e90ff",
+  kebutuhan: "#dc3545",
+  tabungan: "#28a745",
+  investasi: "#6f42c1"
+};
+
+function updateKategoriOptions() {
+  const tipe = document.getElementById("tipe").value;
+  const kategori = document.getElementById("kategori");
+  kategori.innerHTML = "";
+
+  if (tipe === "masuk") {
+    kategori.innerHTML += `<option value="penjualan">Penjualan</option>`;
+    kategori.innerHTML += `<option value="kiriman">Kiriman</option>`;
+  } else {
+    kategori.innerHTML += `<option value="belanja">Belanja</option>`;
+    kategori.innerHTML += `<option value="transport">Transport</option>`;
+    kategori.innerHTML += `<option value="kebutuhan">Kebutuhan Dasar</option>`;
+    kategori.innerHTML += `<option value="tabungan">Tabungan</option>`;
+    kategori.innerHTML += `<option value="investasi">Investasi</option>`;
+  }
+}
+
+function tambahTransaksi() {
+  const nama = document.getElementById("nama").value.trim();
+  const jumlah = parseInt(document.getElementById("jumlah").value);
+  const kategori = document.getElementById("kategori").value;
+  const tipe = document.getElementById("tipe").value;
+
+  if (!nama || isNaN(jumlah)) {
+    alert("Isi nama dan jumlah dengan benar!");
+    return;
+  }
+
+  undoStack = [...data];
+  localStorage.setItem("undoKeuanganData", JSON.stringify(undoStack));
+
+  data.push({ nama, jumlah, kategori, tipe });
+  localStorage.setItem("keuanganData", JSON.stringify(data));
+
+  document.getElementById("nama").value = "";
+  document.getElementById("jumlah").value = "";
+
+  render();
+}
+
+function undoTransaksi() {
+  if (!undoStack || undoStack.length === 0) {
+    alert("Belum ada transaksi yang bisa dibatalkan.");
+    return;
+  }
+
+  data = [...undoStack];
+  localStorage.setItem("keuanganData", JSON.stringify(data));
+  localStorage.removeItem("undoKeuanganData");
+  undoStack = [];
+  render();
+}
+
+function resetData() {
+  if (confirm("Yakin ingin menghapus semua data?")) {
+    localStorage.removeItem("keuanganData");
+    localStorage.removeItem("undoKeuanganData");
+    data = [];
+    undoStack = [];
+    render();
+  }
+}
+
+function render() {
+  const tbody = document.querySelector("#riwayat tbody");
+  tbody.innerHTML = "";
+
+  let totalMasuk = 0;
+  let totalPengeluaran = 0;
+  let pengeluaranPerKategori = {};
+
+  data.forEach(item => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${item.nama}</td>
+      <td>Rp${item.jumlah.toLocaleString()}</td>
+      <td>${item.kategori}</td>
+      <td>${item.tipe}</td>
+    `;
+    tbody.appendChild(row);
+
+    if (item.tipe === "masuk") {
+      totalMasuk += item.jumlah;
+    } else {
+      totalPengeluaran += item.jumlah;
+      pengeluaranPerKategori[item.kategori] = (pengeluaranPerKategori[item.kategori] || 0) + item.jumlah;
+    }
+  });
+
+  const totalSaldo = totalMasuk - totalPengeluaran;
+  document.getElementById("saldo").innerText = `Total Saldo: Rp${totalSaldo.toLocaleString()}`;
+  updateChart(pengeluaranPerKategori, totalPengeluaran, totalMasuk);
+}
+
+function updateChart(dataKategori, totalOut, totalIn) {
+  const ctx = document.getElementById("chartKeuangan").getContext("2d");
+  const centerText = document.getElementById("chartCenterText");
+
+  const labels = Object.keys(dataKategori);
+  const values = Object.values(dataKategori);
+  const colors = labels.map(k => warnaKategoriPengeluaran[k] || "#ccc");
+
+  const persen = totalIn > 0 ? ((totalOut / totalIn) * 100).toFixed(0) : 0;
+  centerText.innerText = persen + "%";
+
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderColor: "#fff",
+        borderWidth: 2
+      }]
+    },
+    options: {
+      cutout: "70%",
+      plugins: {
+        tooltip: {
+          enabled: true,
+          callbacks: {
+            label: function(context) {
+              const label = context.label || "";
+              const value = context.raw || 0;
+              return `${label}: Rp${value.toLocaleString()}`;
+            }
+          }
+        },
+        legend: { display: false },
+        title: {
+          display: true,
+          text: "Pengeluaran per Kategori",
+          font: { size: 16 }
+        }
+      }
+    }
+  });
+}
+
+render();
+</script>
+
+
+<style>
+  .kritik-saran {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 999;
+  }
+
+  .kritik-saran button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 50px;
+    padding: 12px 20px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  }
+
+  .kritik-saran-content {
+    display: none;
+    position: absolute;
+    bottom: 50px;
+    right: 0;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    padding: 10px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  }
+
+  .kritik-saran-content a {
+    display: block;
+    color: #000;
+    text-decoration: none;
+    margin: 5px 0;
+  }
+
+  .kritik-saran-content a:hover {
+    text-decoration: underline;
+  }
+</style>
+
+<div class="kritik-saran">
+  <button onclick="toggleKritik()">💬 Kritik & Saran</button>
+  <div class="kritik-saran-content" id="kritikMenu">
+    <a href="https://wa.me/6285723961057" target="_blank">📱 WhatsApp</a>
+    <a href="mailto:drivekanaja12@gmail.com" target="_blank">📧 Email</a>
+  </div>
+</div>
+
+<script>
+  function toggleKritik() {
+    const menu = document.getElementById("kritikMenu");
+    menu.style.display = menu.style.display === "block" ? "none" : "block";
+  }
+</script>
+
+</body>
+</html>
